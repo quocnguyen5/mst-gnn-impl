@@ -1,7 +1,8 @@
 """
 Data Collector
 ==============
-Fetches stock data from AKShare (free, no API key required).
+Fetches stock data using baostock (primary, works globally) and
+AKShare (fallback, may be blocked outside mainland China).
 Handles CSI 300 and CSI 500 constituent stocks including:
 - Daily OHLCV price data
 - Industry classification
@@ -27,7 +28,27 @@ except ImportError:
         "AKShare is required. Install with: pip install akshare"
     )
 
+try:
+    import baostock as bs
+    _BAOSTOCK_AVAILABLE = True
+except ImportError:
+    _BAOSTOCK_AVAILABLE = False
+    bs = None
+
 logger = logging.getLogger(__name__)
+
+
+def _to_baostock_code(code: str) -> str:
+    """Convert 6-digit A-share code to baostock format.
+    
+    Shanghai stocks start with 6: sh.6xxxxx
+    Shenzhen stocks start with 0 or 3: sz.0xxxxx / sz.3xxxxx
+    """
+    code = str(code).zfill(6)
+    if code.startswith("6"):
+        return f"sh.{code}"
+    else:
+        return f"sz.{code}"
 
 
 class StockDataCollector:
@@ -109,80 +130,114 @@ class StockDataCollector:
     # 2. Daily OHLCV Price Data
     # ------------------------------------------------------------------
 
+    def _fetch_stock_daily_baostock(
+        self,
+        stock_code: str,
+        start_date: str,
+        end_date: str,
+    ) -> Optional[pd.DataFrame]:
+        """Fetch daily OHLCV data from baostock (works from non-China IPs)."""
+        if not _BAOSTOCK_AVAILABLE:
+            return None
+        try:
+            bs_code = _to_baostock_code(stock_code)
+            # adjustflag: "2"=forward-adjusted (qfq), "1"=backward, "3"=none
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,open,high,low,close,volume",
+                start_date=start_date,
+                end_date=end_date,
+                frequency="d",
+                adjustflag="2",
+            )
+            if rs.error_code != "0":
+                logger.debug(f"baostock error for {stock_code}: {rs.error_msg}")
+                return None
+
+            rows = []
+            while rs.next():
+                rows.append(rs.get_row_data())
+
+            if not rows:
+                return None
+
+            df = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
+            # baostock returns strings — convert to numeric
+            for col in ["open", "high", "low", "close", "volume"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            df["date"] = pd.to_datetime(df["date"])
+            df["stock_code"] = stock_code
+            df = df.dropna(subset=["open", "close"]).sort_values("date").reset_index(drop=True)
+            return df[["date", "stock_code", "open", "high", "low", "close", "volume"]]
+        except Exception as e:
+            logger.debug(f"baostock fetch failed for {stock_code}: {e}")
+            return None
+
+    def _fetch_stock_daily_akshare(
+        self,
+        stock_code: str,
+        start_date: str,
+        end_date: str,
+    ) -> Optional[pd.DataFrame]:
+        """Fetch daily OHLCV data from AKShare (may be blocked outside China)."""
+        sd = start_date.replace("-", "")
+        ed = end_date.replace("-", "")
+        try:
+            df = ak.stock_zh_a_hist(
+                symbol=stock_code,
+                period="daily",
+                start_date=sd,
+                end_date=ed,
+                adjust="qfq",
+            )
+            if df is None or df.empty:
+                return None
+            df.rename(
+                columns={
+                    "日期": "date", "开盘": "open", "最高": "high",
+                    "最低": "low", "收盘": "close", "成交量": "volume",
+                },
+                inplace=True,
+            )
+            df["date"] = pd.to_datetime(df["date"])
+            df["stock_code"] = stock_code
+            df = df.sort_values("date").reset_index(drop=True)
+            return df[["date", "stock_code", "open", "high", "low", "close", "volume"]]
+        except Exception as e:
+            logger.debug(f"AKShare fetch failed for {stock_code}: {e}")
+            return None
+
     def fetch_stock_daily(
         self,
         stock_code: str,
         start_date: str,
         end_date: str,
-        adjust: str = "qfq",  # forward-adjusted prices
+        adjust: str = "qfq",
     ) -> Optional[pd.DataFrame]:
         """
-        Fetch daily OHLCV data for a single stock with robust retries and exponential backoff.
+        Fetch daily OHLCV data for a single stock.
+        Tries baostock first (works globally), then falls back to AKShare.
 
         Args:
             stock_code: 6-digit stock code (e.g., "000001")
             start_date: Start date "YYYY-MM-DD"
             end_date: End date "YYYY-MM-DD"
-            adjust: Price adjustment method ("qfq"=forward, "hfq"=backward, ""=none)
 
         Returns:
-            DataFrame with columns: [date, open, high, low, close, volume]
+            DataFrame with columns: [date, stock_code, open, high, low, close, volume]
         """
-        sd = start_date.replace("-", "")
-        ed = end_date.replace("-", "")
-        
-        max_retries = 5
-        base_delay = 1.0
+        # --- Primary: baostock (TCP protocol, works from Taiwan/Colab) ---
+        df = self._fetch_stock_daily_baostock(stock_code, start_date, end_date)
+        if df is not None and not df.empty:
+            return df
 
-        for attempt in range(max_retries):
-            try:
-                df = ak.stock_zh_a_hist(
-                    symbol=stock_code,
-                    period="daily",
-                    start_date=sd,
-                    end_date=ed,
-                    adjust=adjust,
-                )
+        # --- Fallback: AKShare (HTTP, may be blocked outside mainland China) ---
+        logger.debug(f"baostock failed for {stock_code}, trying AKShare...")
+        df = self._fetch_stock_daily_akshare(stock_code, start_date, end_date)
+        if df is not None and not df.empty:
+            return df
 
-                if df is None or df.empty:
-                    logger.warning(f"No data for stock {stock_code}")
-                    return None
-
-                # Standardize column names
-                df.rename(
-                    columns={
-                        "日期": "date",
-                        "开盘": "open",
-                        "最高": "high",
-                        "最低": "low",
-                        "收盘": "close",
-                        "成交量": "volume",
-                        "成交额": "amount",
-                        "振幅": "amplitude",
-                        "涨跌幅": "pct_change",
-                        "涨跌额": "price_change",
-                        "换手率": "turnover",
-                    },
-                    inplace=True,
-                )
-
-                df["date"] = pd.to_datetime(df["date"])
-                df["stock_code"] = stock_code
-                df = df.sort_values("date").reset_index(drop=True)
-
-                return df[
-                    ["date", "stock_code", "open", "high", "low", "close", "volume"]
-                ]
-
-            except Exception as e:
-                delay = base_delay * (2 ** attempt)
-                logger.warning(
-                    f"Error fetching stock {stock_code} on attempt {attempt+1}/{max_retries}: {e}. "
-                    f"Retrying in {delay:.1f}s..."
-                )
-                time.sleep(delay)
-
-        logger.error(f"Failed to fetch stock {stock_code} after {max_retries} attempts.")
+        logger.warning(f"All sources failed for stock {stock_code}.")
         return None
 
     def fetch_all_stocks_daily(
@@ -190,16 +245,17 @@ class StockDataCollector:
         stock_codes: List[str],
         start_date: str,
         end_date: str,
-        delay: float = 0.3,
+        delay: float = 0.1,
     ) -> pd.DataFrame:
         """
-        Fetch daily data for all stocks with rate limiting.
+        Fetch daily data for all stocks.
+        Uses baostock (primary, no rate limit issues) with AKShare as fallback.
 
         Args:
             stock_codes: List of 6-digit stock codes
-            start_date: Start date
-            end_date: End date
-            delay: Delay between API calls (seconds) to avoid throttling
+            start_date: Start date "YYYY-MM-DD"
+            end_date: End date "YYYY-MM-DD"
+            delay: Delay between requests (baostock needs very little)
 
         Returns:
             Combined DataFrame of all stocks
@@ -212,18 +268,30 @@ class StockDataCollector:
             logger.info("Loading daily prices from cache.")
             return pd.read_parquet(cache_path)
 
+        # Login to baostock once for the whole batch
+        if _BAOSTOCK_AVAILABLE:
+            login_result = bs.login()
+            if login_result.error_code == "0":
+                logger.info("baostock login successful — using as primary price source.")
+            else:
+                logger.warning(f"baostock login failed: {login_result.error_msg}. Falling back to AKShare.")
+
         all_data = []
         total = len(stock_codes)
 
-        for i, code in enumerate(stock_codes):
-            if (i + 1) % 50 == 0 or i == 0:
-                logger.info(f"Fetching stock {i+1}/{total}: {code}")
+        try:
+            for i, code in enumerate(stock_codes):
+                if (i + 1) % 50 == 0 or i == 0:
+                    logger.info(f"Fetching stock {i+1}/{total}: {code}")
 
-            df = self.fetch_stock_daily(code, start_date, end_date)
-            if df is not None and not df.empty:
-                all_data.append(df)
+                df = self.fetch_stock_daily(code, start_date, end_date)
+                if df is not None and not df.empty:
+                    all_data.append(df)
 
-            time.sleep(delay)  # Rate limiting
+                time.sleep(delay)
+        finally:
+            if _BAOSTOCK_AVAILABLE:
+                bs.logout()
 
         if not all_data:
             raise RuntimeError("No stock data could be fetched!")

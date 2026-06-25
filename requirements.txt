@@ -11,6 +11,7 @@ torch-sparse
 
 # Data collection (free, no API key required)
 akshare>=1.10.0
+baostock>=0.8.8        # Primary price data source (TCP protocol, works outside China)
 
 # NLP for topicality network
 gensim>=4.3.0        # LDA topic modeling
