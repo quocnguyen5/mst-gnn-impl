@@ -321,9 +321,41 @@ class StockDataCollector:
             logger.info("Loading industry classification from cache.")
             return pd.read_csv(cache_path, dtype={"stock_code": str})
 
-        logger.info("Fetching industry classification from AKShare...")
+        # --- Primary: baostock query_stock_industry (works globally) ---
+        if _BAOSTOCK_AVAILABLE:
+            logger.info("Fetching industry classification from baostock...")
+            try:
+                login_result = bs.login()
+                if login_result.error_code == "0":
+                    rs = bs.query_stock_industry()
+                    rows = []
+                    while rs.next():
+                        rows.append(rs.get_row_data())
+                    bs.logout()
+
+                    if rows:
+                        df = pd.DataFrame(
+                            rows,
+                            columns=["updateDate", "code", "code_name",
+                                     "industry", "industryClassification"]
+                        )
+                        # Convert baostock code (sh.600000) → 6-digit code
+                        df["stock_code"] = df["code"].str.split(".").str[1].str.zfill(6)
+                        df = df.rename(columns={"industry": "industry_name"})
+                        result = df[["stock_code", "industry_name"]].dropna()
+                        result = result.drop_duplicates(subset=["stock_code"], keep="first")
+                        result.to_csv(cache_path, index=False)
+                        logger.info(f"Fetched industry for {len(result)} stocks via baostock.")
+                        return result
+                else:
+                    bs.logout()
+                    logger.warning(f"baostock login failed: {login_result.error_msg}")
+            except Exception as e:
+                logger.warning(f"baostock industry fetch failed: {e}")
+
+        # --- Fallback: AKShare (may be blocked outside China) ---
+        logger.info("Trying AKShare for industry classification...")
         try:
-            # Get industry board list
             industry_list = ak.stock_board_industry_name_em()
             all_industry_data = []
 
@@ -344,18 +376,21 @@ class StockDataCollector:
                     logger.debug(f"Skipping industry {industry_name}: {e}")
                     continue
 
-            if not all_industry_data:
-                raise RuntimeError("No industry data fetched")
-
-            result = pd.concat(all_industry_data, ignore_index=True)
-            result = result.drop_duplicates(subset=["stock_code"], keep="first")
-            result.to_csv(cache_path, index=False)
-            logger.info(f"Fetched industry for {len(result)} stocks.")
-            return result
-
+            if all_industry_data:
+                result = pd.concat(all_industry_data, ignore_index=True)
+                result = result.drop_duplicates(subset=["stock_code"], keep="first")
+                result.to_csv(cache_path, index=False)
+                logger.info(f"Fetched industry for {len(result)} stocks via AKShare.")
+                return result
         except Exception as e:
-            logger.error(f"Failed to fetch industry classification: {e}")
-            raise
+            logger.warning(f"AKShare industry fetch failed: {e}")
+
+        # --- Last resort: return empty DataFrame (Industry network disabled) ---
+        logger.warning(
+            "Could not fetch industry classification from any source. "
+            "Industry network layer will be empty (all stocks in one group)."
+        )
+        return pd.DataFrame(columns=["stock_code", "industry_name"])
 
     # ------------------------------------------------------------------
     # 4. Shareholding Data
@@ -392,13 +427,8 @@ class StockDataCollector:
                     continue
 
                 for _, h_row in holders.iterrows():
-                    # Check if the shareholder is also a listed company
-                    # in our stock set (cross-shareholding)
                     holder_name = str(h_row.get("股东名称", ""))
                     ratio = h_row.get("持股比例", 0)
-
-                    # We attempt to match holder name to stock codes
-                    # This is imperfect; in practice, a mapping table is better
                     if isinstance(ratio, (int, float)) and ratio > 0:
                         edges.append(
                             {
@@ -416,7 +446,15 @@ class StockDataCollector:
         result = pd.DataFrame(edges)
         if not result.empty:
             result.to_csv(cache_path, index=False)
-        logger.info(f"Fetched {len(result)} shareholding records.")
+            logger.info(f"Fetched {len(result)} shareholding records.")
+        else:
+            logger.warning(
+                "No shareholding data fetched (API may be blocked). "
+                "Shareholding network layer will be empty."
+            )
+            # Save empty file so we don't retry on next run
+            result = pd.DataFrame(columns=["held_code", "holder_name", "ratio"])
+            result.to_csv(cache_path, index=False)
         return result
 
     # ------------------------------------------------------------------
