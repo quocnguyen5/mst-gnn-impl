@@ -239,11 +239,13 @@ class GraphBuilder:
             return None
 
         # Get news for this stock in the last window_days
-        date_start = date - pd.Timedelta(days=window_days)
+        # Ensure date types are pd.Timestamp for consistent comparison
+        date_ts = pd.Timestamp(date)
+        date_start = date_ts - pd.Timedelta(days=window_days)
         mask = (
             (news_df["stock_code"] == stock_code)
             & (news_df["date"] >= date_start)
-            & (news_df["date"] <= date)
+            & (news_df["date"] <= date_ts)
         )
         stock_news = news_df.loc[mask]
 
