@@ -77,7 +77,7 @@ def load_and_evaluate(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     if config is None:
         config = checkpoint.get("config", Config())
 

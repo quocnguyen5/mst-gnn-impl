@@ -332,7 +332,7 @@ class Trainer:
         """Load the best model checkpoint."""
         path = os.path.join(self.config.train.save_dir, "best_model.pt")
         if os.path.exists(path):
-            checkpoint = torch.load(path, map_location=self.device)
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
             self.model.load_state_dict(checkpoint["model_state_dict"])
             logger.info(
                 f"Loaded best model from epoch {checkpoint['epoch']}"
