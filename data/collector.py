@@ -56,9 +56,9 @@ class StockDataCollector:
         logger.info("Fetching CSI 300 constituents from AKShare...")
         try:
             # AKShare function for CSI 300 constituent list
-            df = ak.index_stock_cons_df(symbol="000300")
+            df = ak.index_stock_cons_csindex(symbol="000300")
             df.rename(
-                columns={"品种代码": "code", "品种名称": "name"},
+                columns={"成分券代码": "code", "成分券名称": "name"},
                 inplace=True,
             )
             df["code"] = df["code"].astype(str).str.zfill(6)
@@ -83,9 +83,9 @@ class StockDataCollector:
 
         logger.info("Fetching CSI 500 constituents from AKShare...")
         try:
-            df = ak.index_stock_cons_df(symbol="000905")
+            df = ak.index_stock_cons_csindex(symbol="000905")
             df.rename(
-                columns={"品种代码": "code", "品种名称": "name"},
+                columns={"成分券代码": "code", "成分券名称": "name"},
                 inplace=True,
             )
             df["code"] = df["code"].astype(str).str.zfill(6)
