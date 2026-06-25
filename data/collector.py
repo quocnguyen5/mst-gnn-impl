@@ -117,7 +117,7 @@ class StockDataCollector:
         adjust: str = "qfq",  # forward-adjusted prices
     ) -> Optional[pd.DataFrame]:
         """
-        Fetch daily OHLCV data for a single stock.
+        Fetch daily OHLCV data for a single stock with robust retries and exponential backoff.
 
         Args:
             stock_code: 6-digit stock code (e.g., "000001")
@@ -128,52 +128,62 @@ class StockDataCollector:
         Returns:
             DataFrame with columns: [date, open, high, low, close, volume]
         """
-        try:
-            # Convert date format for AKShare (YYYYMMDD)
-            sd = start_date.replace("-", "")
-            ed = end_date.replace("-", "")
+        sd = start_date.replace("-", "")
+        ed = end_date.replace("-", "")
+        
+        max_retries = 5
+        base_delay = 1.0
 
-            df = ak.stock_zh_a_hist(
-                symbol=stock_code,
-                period="daily",
-                start_date=sd,
-                end_date=ed,
-                adjust=adjust,
-            )
+        for attempt in range(max_retries):
+            try:
+                df = ak.stock_zh_a_hist(
+                    symbol=stock_code,
+                    period="daily",
+                    start_date=sd,
+                    end_date=ed,
+                    adjust=adjust,
+                )
 
-            if df is None or df.empty:
-                logger.warning(f"No data for stock {stock_code}")
-                return None
+                if df is None or df.empty:
+                    logger.warning(f"No data for stock {stock_code}")
+                    return None
 
-            # Standardize column names
-            df.rename(
-                columns={
-                    "日期": "date",
-                    "开盘": "open",
-                    "最高": "high",
-                    "最低": "low",
-                    "收盘": "close",
-                    "成交量": "volume",
-                    "成交额": "amount",
-                    "振幅": "amplitude",
-                    "涨跌幅": "pct_change",
-                    "涨跌额": "price_change",
-                    "换手率": "turnover",
-                },
-                inplace=True,
-            )
+                # Standardize column names
+                df.rename(
+                    columns={
+                        "日期": "date",
+                        "开盘": "open",
+                        "最高": "high",
+                        "最低": "low",
+                        "收盘": "close",
+                        "成交量": "volume",
+                        "成交额": "amount",
+                        "振幅": "amplitude",
+                        "涨跌幅": "pct_change",
+                        "涨跌额": "price_change",
+                        "换手率": "turnover",
+                    },
+                    inplace=True,
+                )
 
-            df["date"] = pd.to_datetime(df["date"])
-            df["stock_code"] = stock_code
-            df = df.sort_values("date").reset_index(drop=True)
+                df["date"] = pd.to_datetime(df["date"])
+                df["stock_code"] = stock_code
+                df = df.sort_values("date").reset_index(drop=True)
 
-            return df[
-                ["date", "stock_code", "open", "high", "low", "close", "volume"]
-            ]
+                return df[
+                    ["date", "stock_code", "open", "high", "low", "close", "volume"]
+                ]
 
-        except Exception as e:
-            logger.warning(f"Error fetching stock {stock_code}: {e}")
-            return None
+            except Exception as e:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(
+                    f"Error fetching stock {stock_code} on attempt {attempt+1}/{max_retries}: {e}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+                time.sleep(delay)
+
+        logger.error(f"Failed to fetch stock {stock_code} after {max_retries} attempts.")
+        return None
 
     def fetch_all_stocks_daily(
         self,
