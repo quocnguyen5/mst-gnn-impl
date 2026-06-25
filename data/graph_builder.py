@@ -239,13 +239,16 @@ class GraphBuilder:
             return None
 
         # Get news for this stock in the last window_days
-        # Ensure date types are pd.Timestamp for consistent comparison
+        # Convert both sides to pd.Timestamp to ensure consistent comparison.
+        # news_df["date"] may be datetime.date objects (from .dt.date), so
+        # we normalise the column inline using pd.to_datetime.
         date_ts = pd.Timestamp(date)
         date_start = date_ts - pd.Timedelta(days=window_days)
+        news_dates = pd.to_datetime(news_df["date"])
         mask = (
             (news_df["stock_code"] == stock_code)
-            & (news_df["date"] >= date_start)
-            & (news_df["date"] <= date_ts)
+            & (news_dates >= date_start)
+            & (news_dates <= date_ts)
         )
         stock_news = news_df.loc[mask]
 
@@ -294,6 +297,10 @@ class GraphBuilder:
             edge_index: (2, num_edges)
             edge_weight: (num_edges,) cosine similarities
         """
+        if news_df is None or news_df.empty:
+            logger.debug("No news data available. Returning empty topicality network.")
+            return np.zeros((2, 0), dtype=np.int64), np.zeros(0, dtype=np.float32)
+
         if self._lda_model is None:
             logger.debug("LDA model not trained. Returning empty topicality network.")
             return np.zeros((2, 0), dtype=np.int64), np.zeros(0, dtype=np.float32)
