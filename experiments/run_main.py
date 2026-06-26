@@ -14,6 +14,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,6 +53,8 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
     logger.info("=" * 60)
 
     # ---- Phase 1: Data Collection ----
+    t1 = time.time()
+    print("\n[Phase 1] Collecting data (loading from cache if available)...", flush=True)
     logger.info("Phase 1: Collecting data...")
     collector = StockDataCollector(cache_dir=config.data.raw_data_dir)
 
@@ -73,8 +76,13 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
         logger.error(f"Data collection failed: {e}")
         logger.info("Please ensure you have internet access and AKShare is installed.")
         raise
+    print(f"  [Phase 1 done] {time.time()-t1:.1f}s — "
+          f"{len(raw_data['daily_prices']):,} price rows, "
+          f"{len(raw_data['industry'])} industry records", flush=True)
 
     # ---- Phase 2: Preprocessing ----
+    t2 = time.time()
+    print("\n[Phase 2] Preprocessing — computing 13 features & sliding windows...", flush=True)
     logger.info("Phase 2: Preprocessing data...")
     preprocessor = StockPreprocessor(
         lookback_window=config.data.lookback_window,
@@ -88,8 +96,11 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
     active_stocks = {}
     for date in trading_dates:
         active_stocks[date] = preprocessor.get_active_stocks(processed_df, date)
+    print(f"  [Phase 2 done] {time.time()-t2:.1f}s — "
+          f"{len(trading_dates)} trading days, {len(samples):,} samples", flush=True)
 
     # ---- Phase 3: Graph Construction ----
+    t3 = time.time()
     logger.info("Phase 3: Building multilayer graphs...")
     graph_builder = GraphBuilder(
         comovement_window=config.data.comovement_window,
@@ -108,6 +119,8 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
     )
 
     # ---- Phase 4: Dataset Creation ----
+    t4 = time.time()
+    print("\n[Phase 4] Creating dataset — matching samples to graphs...", flush=True)
     logger.info("Phase 4: Creating dataset...")
     dataset_builder = DatasetBuilder(
         train_ratio=config.data.train_ratio,
@@ -120,10 +133,17 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
     dataset_builder.save_dataset(snapshots, filename=f"{dataset}_snapshots.pkl")
 
     train_ds, val_ds, test_ds = dataset_builder.split_dataset(snapshots)
+    print(f"  [Phase 4 done] {time.time()-t4:.1f}s — "
+          f"{len(snapshots)} snapshots | "
+          f"Train: {len(train_ds)} | Val: {len(val_ds)} | Test: {len(test_ds)}",
+          flush=True)
 
     # ---- Phase 5: Training ----
+    t5 = time.time()
+    print("\n[Phase 5] Training MST-GNN...", flush=True)
     logger.info("Phase 5: Training MST-GNN...")
     model = MSTGNN.from_config(config)
+    print(f"  Model parameters: {model.count_parameters():,}", flush=True)
     trainer = Trainer(
         model=model,
         config=config,

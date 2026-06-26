@@ -13,12 +13,14 @@ The multilayer graph at time t is Gₜ = {Gₜ,q, q ∈ R}.
 """
 
 import logging
+import time
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
 from scipy.spatial.distance import cosine
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -495,29 +497,43 @@ class GraphBuilder:
                 "networks": Dict[str, (edge_index, edge_weight)]
             }
         """
-        logger.info(f"Building temporal multilayer graphs for {len(trading_dates)} dates...")
+        total_dates = len(trading_dates)
+        logger.info(
+            f"Building temporal multilayer graphs for {total_dates} dates..."
+        )
+        print(
+            f"[Phase 3] Building graphs for {total_dates} trading days "
+            f"(this is the slowest step — ~5-15 min)",
+            flush=True,
+        )
 
         # Pre-compute static networks (using the full stock set)
         all_stocks = sorted(
             set(code for codes in active_stocks_per_date.values() for code in codes)
         )
+        print(f"  Active stocks in universe: {len(all_stocks)}", flush=True)
 
+        print("  Building shareholding network (static)...", flush=True)
         static_shareholding = self.build_shareholding_network(
             shareholding_df, all_stocks
         )
+        print("  Building industry network (static)...", flush=True)
         static_industry = self.build_industry_network(
             industry_df, all_stocks
         )
 
         # Train LDA model once
         if not news_df.empty:
+            print("  Training LDA topic model for topicality network...", flush=True)
             self.train_lda_model(news_df)
 
         all_graphs = {}
-        for i, date in enumerate(trading_dates):
-            if (i + 1) % 100 == 0:
-                logger.info(f"Building graphs: {i+1}/{len(trading_dates)}")
+        t0 = time.time()
 
+        # tqdm progress bar: visible in Colab and terminal
+        for i, date in enumerate(
+            tqdm(trading_dates, desc="  [Graph build]", unit="day", ncols=80)
+        ):
             stock_codes = active_stocks_per_date.get(date, all_stocks)
 
             # Re-index static networks for the current stock subset
@@ -577,5 +593,11 @@ class GraphBuilder:
                 "networks": networks,
             }
 
+        elapsed = time.time() - t0
+        print(
+            f"  [Phase 3 complete] {total_dates} graphs built in "
+            f"{elapsed/60:.1f} min ({elapsed/total_dates:.2f}s/day)",
+            flush=True,
+        )
         logger.info("Temporal multilayer graph construction complete.")
         return all_graphs
