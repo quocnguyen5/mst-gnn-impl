@@ -17,6 +17,7 @@ import pickle
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
@@ -122,11 +123,20 @@ class DatasetBuilder:
         """
         snapshots = []
 
+        # Normalise all dates to pd.Timestamp so that dict lookups are
+        # consistent regardless of whether dates came from numpy datetime64
+        # (parquet files), Python datetime.date, or pd.Timestamp objects.
+        norm_samples = {
+            (code, pd.Timestamp(date)): val
+            for (code, date), val in samples.items()
+        }
+
         for date in trading_dates:
-            if date not in graphs:
+            date_ts = pd.Timestamp(date)
+            if date_ts not in graphs:
                 continue
 
-            graph_info = graphs[date]
+            graph_info = graphs[date_ts]
             stock_codes = graph_info["stock_codes"]
             networks = graph_info["networks"]
 
@@ -137,9 +147,9 @@ class DatasetBuilder:
             valid_codes = []
 
             for code in stock_codes:
-                key = (code, date)
-                if key in samples:
-                    sample = samples[key]
+                key = (code, date_ts)
+                if key in norm_samples:
+                    sample = norm_samples[key]
                     features_list.append(sample["features"])
                     movements.append(sample["movement"])
                     returns.append(sample["return"])

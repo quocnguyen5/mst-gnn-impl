@@ -168,6 +168,12 @@ class MetricTracker:
 
     def compute(self) -> Dict[str, float]:
         """Compute all metrics from accumulated data."""
+        if not self.predictions:
+            raise RuntimeError(
+                "MetricTracker.compute() called with no data — the dataset has 0 "
+                "valid snapshots. This usually means the date types in the samples "
+                "dict do not match the keys in the graphs dict. Check dataset.py."
+            )
         all_preds = np.concatenate(self.predictions)
         all_labels = np.concatenate(self.labels)
 
