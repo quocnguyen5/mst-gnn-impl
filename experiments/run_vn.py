@@ -47,17 +47,26 @@ def _push_results_to_github(dataset: str, save_dir: str):
         return
     try:
         cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        cmds = [
-            ["git", "add", "checkpoints/", "logs/"],
-            ["git", "commit", "-m", f"Auto: {dataset.upper()} results"],
-            ["git", "pull", "--rebase", "--no-edit"],
-            ["git", "push"],
-        ]
-        for cmd in cmds:
+        def _run(cmd):
             r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=120)
-            if r.returncode != 0 and "nothing to commit" not in r.stdout:
-                logger.warning(f"Git command failed: {' '.join(cmd)}\n{r.stderr}")
-        print(f"  [Git] Pushed {dataset.upper()} results to GitHub.", flush=True)
+            return r.returncode, r.stdout + r.stderr
+
+        _run(["git", "add", "-A"])
+        rc, out = _run(["git", "commit", "-m", f"Auto: {dataset.upper()} results"])
+        if rc != 0 and "nothing to commit" in out:
+            print("  [Git] Nothing new to commit.", flush=True)
+            return
+
+        rc, out = _run(["git", "push"])
+        if rc != 0:
+            print("  [Git] Normal push failed, trying pull --rebase...", flush=True)
+            _run(["git", "pull", "--rebase", "--no-edit"])
+            rc, out = _run(["git", "push"])
+        if rc != 0:
+            print("  [Git] Rebase push failed, trying --force...", flush=True)
+            _run(["git", "push", "--force"])
+
+        print(f"  [Git] ✅ Pushed {dataset.upper()} results to GitHub.", flush=True)
     except Exception as e:
         print(f"  [Git] Push failed (non-fatal): {e}", flush=True)
 
@@ -279,23 +288,34 @@ def run_vn_experiment(
     )
 
     # ---- Summary ---------------------------------------------------------
+    import json as _json
     total_min = (_time.time() - t_total) / 60
-    logger.info("=" * 60)
-    logger.info("EXPERIMENT COMPLETE — Vietnam Stock Market")
-    logger.info(f"Universe:       {universe.upper()} ({len(raw_data['constituents'])} stocks)")
-    logger.info(f"Period:         {start_date}  →  {end_date}")
-    logger.info(f"Aggregator:     {aggregator}")
-    logger.info(f"Test Accuracy:  {test_metrics['accuracy']:.4f}")
-    logger.info(f"Test Precision: {test_metrics['precision']:.4f}")
-    logger.info(f"Test DAMRR:     {test_metrics['damrr']:.4f}")
-    logger.info(f"Total time:     {total_min:.1f} min")
-    logger.info("=" * 60)
+    aggregator = config.model.stna_aggregator
 
+    # Save results JSON
+    results_path = os.path.join(
+        config.train.save_dir, f"results_{universe}_{aggregator}.json"
+    )
+    results_data = {
+        "dataset": universe,
+        "aggregator": aggregator,
+        "test_metrics": {k: round(v, 4) for k, v in test_metrics.items()},
+        "best_epoch": trainer.best_epoch,
+        "total_epochs": len(trainer.train_history),
+        "train_history": trainer.train_history,
+        "val_history": trainer.val_history,
+    }
+    with open(results_path, "w") as f:
+        _json.dump(results_data, f, indent=2)
+    print(f"\n  [Results] Saved to {results_path}", flush=True)
+
+    # Print clearly for notebook capture
     print(f"\n{'='*60}", flush=True)
-    print(f"  {universe.upper()} DONE in {total_min:.1f} min", flush=True)
-    print(f"  Accuracy: {test_metrics['accuracy']:.4f}  |  "
-          f"Precision: {test_metrics['precision']:.4f}  |  "
-          f"DAMRR: {test_metrics['damrr']:.4f}", flush=True)
+    print(f"  ✅ {universe.upper()} EXPERIMENT COMPLETE ({total_min:.1f} min)", flush=True)
+    print(f"  Accuracy:  {test_metrics['accuracy']:.4f}", flush=True)
+    print(f"  Precision: {test_metrics['precision']:.4f}", flush=True)
+    print(f"  DAMRR:     {test_metrics['damrr']:.4f}", flush=True)
+    print(f"  Best Epoch: {trainer.best_epoch}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
     # ---- Auto-push to GitHub ----
