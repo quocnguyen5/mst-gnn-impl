@@ -90,7 +90,7 @@ class ModelConfig:
     num_classes: int = 2  # binary movement: up/down
 
     # --- Dropout ---
-    dropout: float = 0.3
+    dropout: float = 0.2  # reduced from 0.3 for small datasets
 
 
 @dataclass
@@ -98,15 +98,15 @@ class TrainConfig:
     """Training configuration."""
 
     # --- Optimization ---
-    learning_rate: float = 1e-3
+    learning_rate: float = 5e-4  # reduced from 1e-3 for stability
     weight_decay: float = 1e-5  # c in Eq. 17: L2 regularization
     batch_size: int = 1  # temporal graphs are processed one snapshot at a time
     num_epochs: int = 200
-    patience: int = 20  # early stopping patience
+    patience: int = 40  # increased from 20 — give model more time to learn
 
     # --- Multitask Loss (Eq. 17) ---
     # L = delta * L_move + (1 - delta) * L_rank + c * ||Theta||^2
-    delta: float = 0.5  # task weight balance
+    delta: float = 0.7  # increased from 0.5 — emphasize movement prediction (fix precision=0)
     margin: float = 0.1  # margin for pairwise ranking loss
 
     # --- Gradient Clipping ---
