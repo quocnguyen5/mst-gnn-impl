@@ -370,11 +370,12 @@ class Trainer:
 
         # Plot training curves
         if self.train_history and self.val_history:
+            exp = self.config.train.experiment_name or "training"
             plot_training_curves(
                 self.train_history,
                 self.val_history,
                 save_path=os.path.join(
-                    self.config.train.save_dir, "training_curves.png"
+                    self.config.train.save_dir, f"training_curves_{exp}.png"
                 ),
             )
 
