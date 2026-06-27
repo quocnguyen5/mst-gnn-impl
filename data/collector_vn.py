@@ -28,12 +28,25 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
+# ── vnstock API: try new (4.x) first, fall back to old (3.x) ────────────────
 try:
-    from vnstock import Vnstock
+    from vnstock.api.quote import Quote as _VnQuote  # new API (vnstock >= 4.x)
+    _VNSTOCK_NEW_API = True
     _VNSTOCK_AVAILABLE = True
 except ImportError:
-    _VNSTOCK_AVAILABLE = False
+    _VnQuote = None
+    _VNSTOCK_NEW_API = False
+
+if not _VNSTOCK_NEW_API:
+    try:
+        from vnstock import Vnstock  # old API (vnstock 3.x)
+        _VNSTOCK_AVAILABLE = True
+    except ImportError:
+        _VNSTOCK_AVAILABLE = False
+        Vnstock = None
+else:
     Vnstock = None
 
 logger = logging.getLogger(__name__)
@@ -159,70 +172,89 @@ class VietnamStockCollector:
         symbol: str,
         start_date: str,
         end_date: str,
+        max_retries: int = 3,
     ) -> Optional[pd.DataFrame]:
         """
         Fetch daily OHLCV for a single stock via vnstock.
 
-        Args:
-            symbol:     Stock ticker e.g. "VCB"
-            start_date: "YYYY-MM-DD"
-            end_date:   "YYYY-MM-DD"
-
-        Returns:
-            DataFrame with columns [date, stock_code, open, high, low, close, volume]
-            or None on failure.
+        Tries the new vnstock.api (4.x) first, then falls back to the old
+        Vnstock() API (3.x).  Retries up to max_retries times on connection
+        errors with exponential backoff.
         """
-        try:
-            stock = Vnstock().stock(symbol=symbol, source=self.source)
-            df = stock.quote.history(
-                start=start_date,
-                end=end_date,
-                interval="1D",
-            )
-            if df is None or df.empty:
-                logger.debug(f"No data returned for {symbol}.")
+        for attempt in range(1, max_retries + 1):
+            try:
+                df = self._fetch_one(symbol, start_date, end_date)
+                if df is not None and not df.empty:
+                    return df
                 return None
-
-            df.columns = [c.lower() for c in df.columns]
-
-            # Normalise date column name (varies across vnstock versions)
-            time_col = next(
-                (c for c in df.columns if c in ("time", "date", "tradingdate")),
-                df.columns[0],
-            )
-            df = df.rename(columns={time_col: "date"})
-            df["date"] = pd.to_datetime(df["date"])
-            df["stock_code"] = symbol
-
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col not in df.columns:
-                    logger.warning(f"Column '{col}' missing for {symbol}.")
+            except Exception as e:
+                err_msg = str(e)
+                if "Rate limit" in err_msg or "rate limit" in err_msg:
+                    # Respect the rate limit window explicitly
+                    wait = 60  # wait a full minute
+                    print(f"  Rate limit hit — waiting {wait}s before retrying {symbol}...",
+                          flush=True)
+                    time.sleep(wait)
+                elif attempt < max_retries:
+                    wait = 5 * attempt  # 5s, 10s, 15s
+                    logger.debug(f"Retry {attempt}/{max_retries} for {symbol} in {wait}s ({e})")
+                    time.sleep(wait)
+                else:
+                    logger.warning(f"Failed to fetch {symbol} after {max_retries} attempts: {e}")
                     return None
-                df[col] = pd.to_numeric(df[col], errors="coerce")
+        return None
 
-            df = df.dropna(subset=["open", "close"])
-            df = df.sort_values("date").reset_index(drop=True)
-            return df[["date", "stock_code", "open", "high", "low", "close", "volume"]]
+    def _fetch_one(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        """Single fetch attempt using the best available vnstock API."""
+        if _VNSTOCK_NEW_API and _VnQuote is not None:
+            # ── new API (vnstock >= 4.x) ──────────────────────────────────
+            q = _VnQuote(symbol=symbol, source=self.source)
+            df = q.history(start=start_date, end=end_date, interval="1D")
+        elif Vnstock is not None:
+            # ── old API (vnstock 3.x) — still works on some versions ──────
+            stock = Vnstock().stock(symbol=symbol, source=self.source)
+            df = stock.quote.history(start=start_date, end=end_date, interval="1D")
+        else:
+            raise RuntimeError("vnstock is not installed")
 
-        except Exception as e:
-            logger.warning(f"Failed to fetch {symbol}: {e}")
+        if df is None or df.empty:
             return None
+
+        df.columns = [c.lower() for c in df.columns]
+        time_col = next(
+            (c for c in df.columns if c in ("time", "date", "tradingdate")),
+            df.columns[0],
+        )
+        df = df.rename(columns={time_col: "date"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["stock_code"] = symbol
+
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col not in df.columns:
+                logger.warning(f"Column '{col}' missing for {symbol}.")
+                return None
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df = df.dropna(subset=["open", "close"])
+        df = df.sort_values("date").reset_index(drop=True)
+        return df[["date", "stock_code", "open", "high", "low", "close", "volume"]]
 
     def fetch_all_stocks_daily(
         self,
         stock_codes: List[str],
         start_date: str,
         end_date: str,
-        delay: float = 0.5,
+        delay: float = 4.0,   # vnstock Guest: 20 req/min → min 3s, use 4s to be safe
     ) -> pd.DataFrame:
         """
-        Fetch daily OHLCV for all stocks with local caching.
+        Fetch daily OHLCV for all stocks with local caching and rate limiting.
 
         Args:
             stock_codes: List of ticker symbols
             start_date:  "YYYY-MM-DD"
             end_date:    "YYYY-MM-DD"
-            delay:       Seconds between requests (rate-limiting)
+            delay:       Seconds between requests (default 4s respects the
+                         free-tier 20 req/min rate limit)
 
         Returns:
             Combined DataFrame of all stocks.
@@ -233,19 +265,30 @@ class VietnamStockCollector:
         )
         if os.path.exists(cache_path):
             logger.info("Loading daily prices from cache.")
+            print("  [VN Cache] Loading daily prices from cache (instant).", flush=True)
             return pd.read_parquet(cache_path)
 
-        all_data = []
         total = len(stock_codes)
+        eta_min = total * delay / 60
+        print(
+            f"  Fetching {total} stocks with {delay}s delay "
+            f"(~{eta_min:.0f} min total, respecting 20 req/min rate limit)",
+            flush=True,
+        )
 
-        for i, code in enumerate(stock_codes):
-            if (i + 1) % 20 == 0 or i == 0:
-                logger.info(f"Fetching price data {i + 1}/{total}: {code}")
+        all_data = []
+        failed = []
 
+        for code in tqdm(stock_codes, desc="  [VN fetch]", unit="stock", ncols=80):
             df = self.fetch_stock_daily(code, start_date, end_date)
             if df is not None and not df.empty:
                 all_data.append(df)
-            time.sleep(delay)
+            else:
+                failed.append(code)
+            time.sleep(delay)  # respect rate limit
+
+        if failed:
+            print(f"  Warning: {len(failed)} stocks failed: {failed}", flush=True)
 
         if not all_data:
             raise RuntimeError(
@@ -255,6 +298,11 @@ class VietnamStockCollector:
 
         combined = pd.concat(all_data, ignore_index=True)
         combined.to_parquet(cache_path, index=False)
+        print(
+            f"  Fetched {len(all_data)}/{total} stocks, "
+            f"{len(combined):,} total records.",
+            flush=True,
+        )
         logger.info(
             f"Fetched data for {len(all_data)}/{total} stocks, "
             f"{len(combined):,} total records."
