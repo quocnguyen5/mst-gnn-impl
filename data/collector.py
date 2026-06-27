@@ -547,10 +547,10 @@ class StockDataCollector:
         """
         if dataset == "csi300":
             start_date = start_date or "2018-01-02"
-            end_date = end_date or "2022-06-30"
+            end_date = end_date or "2026-06-26"
         elif dataset == "csi500":
-            start_date = start_date or "2019-01-02"
-            end_date = end_date or "2022-06-30"
+            start_date = start_date or "2018-01-02"
+            end_date = end_date or "2026-06-26"
 
         # 1. Get constituent list
         constituents = self.get_constituents(dataset)
