@@ -163,8 +163,11 @@ class DatasetBuilder:
             node_features = torch.tensor(
                 np.stack(features_list), dtype=torch.float32
             )  # (n, T, d)
+            # Safety: replace any NaN/inf with 0
+            node_features = torch.nan_to_num(node_features, nan=0.0, posinf=0.0, neginf=0.0)
             movement_labels = torch.tensor(movements, dtype=torch.long)
             return_labels = torch.tensor(returns, dtype=torch.float32)
+            return_labels = torch.nan_to_num(return_labels, nan=0.0)
 
             # Re-index networks for valid_codes only
             code_to_new_idx = {code: i for i, code in enumerate(valid_codes)}

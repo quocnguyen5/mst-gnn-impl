@@ -171,9 +171,10 @@ class StockPreprocessor:
 
         for code, group in df_norm.groupby("stock_code"):
             scaler = StandardScaler()
-            df_norm.loc[group.index, feature_cols] = scaler.fit_transform(
-                group[feature_cols].values
-            )
+            normalized = scaler.fit_transform(group[feature_cols].values)
+            # Handle NaN/inf from zero-std columns (stock price didn't change)
+            normalized = np.nan_to_num(normalized, nan=0.0, posinf=0.0, neginf=0.0)
+            df_norm.loc[group.index, feature_cols] = normalized
             scalers[code] = scaler
 
         return df_norm, scalers
