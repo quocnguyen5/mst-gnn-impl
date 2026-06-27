@@ -1,0 +1,7 @@
+# Checkpoint .pt files are too large for git (2+ MB each)
+# They're only needed during Kaggle training — results are saved in JSON
+*.pt
+
+# Keep these (small, important):
+!*.json
+!*.png

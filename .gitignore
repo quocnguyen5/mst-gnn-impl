@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# Processed data (generated during training)
+data/processed/
+data/processed_vn/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (generated during training)
+logs/
+
+# Graph cache (too large for git)
+*.pkl
