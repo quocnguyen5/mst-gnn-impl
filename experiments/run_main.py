@@ -13,8 +13,10 @@ Usage:
 import argparse
 import logging
 import os
+import pickle
 import sys
 import time
+import subprocess
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,6 +32,30 @@ from backtest import TradingSimulator
 from utils.logger import setup_logger
 
 logger = logging.getLogger(__name__)
+
+
+def _push_results_to_github(dataset: str, save_dir: str):
+    """Push checkpoints and logs to GitHub if GITHUB_TOKEN is set."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        print("  [Git] GITHUB_TOKEN not set — skipping auto-push.", flush=True)
+        return
+
+    try:
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cmds = [
+            ["git", "add", "checkpoints/", "logs/"],
+            ["git", "commit", "-m", f"Auto: {dataset.upper()} results"],
+            ["git", "push"],
+        ]
+        for cmd in cmds:
+            r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd,
+                               timeout=60)
+            if r.returncode != 0 and "nothing to commit" not in r.stdout:
+                logger.warning(f"Git command failed: {' '.join(cmd)}\n{r.stderr}")
+        print(f"  [Git] Pushed {dataset.upper()} results to GitHub.", flush=True)
+    except Exception as e:
+        print(f"  [Git] Push failed (non-fatal): {e}", flush=True)
 
 
 def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
@@ -101,22 +127,45 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
 
     # ---- Phase 3: Graph Construction ----
     t3 = time.time()
+    print(f"\n[Phase 3] Building graphs for {len(trading_dates)} trading days "
+          f"(this is the slowest step — ~5-15 min)", flush=True)
     logger.info("Phase 3: Building multilayer graphs...")
-    graph_builder = GraphBuilder(
-        comovement_window=config.data.comovement_window,
-        comovement_threshold=config.data.comovement_threshold,
-        num_topics=config.data.num_topics,
-        topic_similarity_threshold=config.data.topic_similarity_threshold,
-    )
 
-    graphs = graph_builder.build_temporal_multilayer_graphs(
-        trading_dates=trading_dates,
-        price_df=processed_df,
-        industry_df=raw_data["industry"],
-        shareholding_df=raw_data["shareholding"],
-        news_df=raw_data["news"],
-        active_stocks_per_date=active_stocks,
+    # Graph cache: skip rebuild if cached pickle exists
+    graph_cache_path = os.path.join(
+        config.data.processed_data_dir,
+        f"graphs_{dataset}_{len(trading_dates)}days.pkl",
     )
+    os.makedirs(config.data.processed_data_dir, exist_ok=True)
+
+    if os.path.exists(graph_cache_path):
+        print(f"  [Graph Cache] Loading from {graph_cache_path} (instant)...", flush=True)
+        with open(graph_cache_path, "rb") as f:
+            graphs = pickle.load(f)
+        logger.info(f"Loaded {len(graphs)} graphs from cache.")
+    else:
+        graph_builder = GraphBuilder(
+            comovement_window=config.data.comovement_window,
+            comovement_threshold=config.data.comovement_threshold,
+            num_topics=config.data.num_topics,
+            topic_similarity_threshold=config.data.topic_similarity_threshold,
+        )
+
+        graphs = graph_builder.build_temporal_multilayer_graphs(
+            trading_dates=trading_dates,
+            price_df=processed_df,
+            industry_df=raw_data["industry"],
+            shareholding_df=raw_data["shareholding"],
+            news_df=raw_data["news"],
+            active_stocks_per_date=active_stocks,
+        )
+
+        # Save to cache for next run
+        with open(graph_cache_path, "wb") as f:
+            pickle.dump(graphs, f)
+        print(f"  [Graph Cache] Saved to {graph_cache_path}", flush=True)
+
+    print(f"  [Phase 3 done] {len(graphs)} graphs in {(time.time()-t3)/60:.1f} min", flush=True)
 
     # ---- Phase 4: Dataset Creation ----
     t4 = time.time()
@@ -186,6 +235,9 @@ def run_experiment(dataset: str = "csi300", aggregator: str = "mean"):
     logger.info(f"Test Precision: {test_metrics['precision']:.4f}")
     logger.info(f"Test DAMRR:     {test_metrics['damrr']:.4f}")
     logger.info("=" * 60)
+
+    # ---- Auto-push to GitHub ----
+    _push_results_to_github(dataset, config.train.save_dir)
 
     return test_metrics
 

@@ -260,9 +260,10 @@ class StockDataCollector:
         Returns:
             Combined DataFrame of all stocks
         """
+        n_stocks = len(stock_codes)
         cache_path = os.path.join(
             self.cache_dir,
-            f"daily_prices_{start_date}_{end_date}.parquet",
+            f"daily_prices_{n_stocks}stocks_{start_date}_{end_date}.parquet",
         )
         if os.path.exists(cache_path):
             logger.info("Loading daily prices from cache.")

@@ -115,6 +115,10 @@ class Trainer:
         self.best_val_loss = float("inf")
         self.best_epoch = 0
         self.patience_counter = 0
+        self.start_epoch = 1  # for resume support
+
+        # Periodic checkpoint interval
+        self.checkpoint_interval = 20  # save every N epochs
 
         # Directories
         os.makedirs(config.train.save_dir, exist_ok=True)
@@ -208,22 +212,98 @@ class Trainer:
 
         return tracker.compute()
 
-    def train(self) -> Dict[str, float]:
+    def resume_from_checkpoint(self) -> bool:
         """
-        Full training loop with early stopping.
+        Automatically detect and load the latest periodic checkpoint.
+        Returns True if a checkpoint was loaded, False otherwise.
+        """
+        import glob as _glob
+
+        exp_name = self.config.train.experiment_name
+        pattern = os.path.join(
+            self.config.train.save_dir, f"ckpt_{exp_name}_epoch*.pt"
+        )
+        ckpt_files = sorted(_glob.glob(pattern))
+        if not ckpt_files:
+            return False
+
+        latest_ckpt = ckpt_files[-1]
+        logger.info(f"Found checkpoint: {latest_ckpt}")
+        checkpoint = torch.load(latest_ckpt, map_location=self.device, weights_only=False)
+
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+        self.start_epoch = checkpoint["epoch"] + 1
+        self.best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        self.best_epoch = checkpoint.get("best_epoch", 0)
+        self.patience_counter = checkpoint.get("patience_counter", 0)
+        self.train_history = checkpoint.get("train_history", [])
+        self.val_history = checkpoint.get("val_history", [])
+
+        logger.info(
+            f"Resumed from epoch {checkpoint['epoch']} "
+            f"(best_epoch={self.best_epoch}, "
+            f"best_val_loss={self.best_val_loss:.4f}, "
+            f"patience={self.patience_counter}/{self.config.train.patience})"
+        )
+        print(
+            f"  [Resume] Loaded checkpoint epoch {checkpoint['epoch']} — "
+            f"continuing from epoch {self.start_epoch}",
+            flush=True,
+        )
+        return True
+
+    def _save_periodic_checkpoint(self, epoch: int, val_metrics: Dict[str, float]):
+        """Save a periodic checkpoint for crash recovery."""
+        exp_name = self.config.train.experiment_name
+        path = os.path.join(
+            self.config.train.save_dir, f"ckpt_{exp_name}_epoch{epoch:04d}.pt"
+        )
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "scheduler_state_dict": (
+                self.scheduler.state_dict() if self.scheduler else None
+            ),
+            "best_val_loss": self.best_val_loss,
+            "best_epoch": self.best_epoch,
+            "patience_counter": self.patience_counter,
+            "train_history": self.train_history,
+            "val_history": self.val_history,
+            "metrics": val_metrics,
+            "config": self.config,
+        }
+        torch.save(checkpoint, path)
+        logger.info(f"Periodic checkpoint saved: {path}")
+
+    def train(self, auto_resume: bool = True) -> Dict[str, float]:
+        """
+        Full training loop with early stopping and checkpoint resume.
+
+        Args:
+            auto_resume: If True, automatically resume from the latest
+                         periodic checkpoint if one exists.
 
         Returns:
-            Best validation metrics
+            Best validation metrics (or test metrics if test_dataset provided)
         """
+        # Try to resume from a previous checkpoint
+        if auto_resume:
+            self.resume_from_checkpoint()
+
         logger.info(
-            f"Starting training for {self.config.train.num_epochs} epochs..."
+            f"Training epochs {self.start_epoch}→{self.config.train.num_epochs}"
         )
         logger.info(
             f"Train: {len(self.train_dataset)} snapshots, "
             f"Val: {len(self.val_dataset)} snapshots"
         )
 
-        for epoch in range(1, self.config.train.num_epochs + 1):
+        for epoch in range(self.start_epoch, self.config.train.num_epochs + 1):
             epoch_start = time.time()
 
             # Train
@@ -241,7 +321,7 @@ class Trainer:
             epoch_time = time.time() - epoch_start
 
             # Logging
-            if epoch % self.config.train.log_interval == 0 or epoch == 1:
+            if epoch % self.config.train.log_interval == 0 or epoch == self.start_epoch:
                 lr = self.optimizer.param_groups[0]["lr"]
                 logger.info(
                     f"Epoch {epoch:3d}/{self.config.train.num_epochs} "
@@ -274,6 +354,10 @@ class Trainer:
             else:
                 self.patience_counter += 1
 
+            # Periodic checkpoint (every N epochs)
+            if epoch % self.checkpoint_interval == 0:
+                self._save_periodic_checkpoint(epoch, val_metrics)
+
             if self.patience_counter >= self.config.train.patience:
                 logger.info(
                     f"Early stopping at epoch {epoch}. "
@@ -295,7 +379,7 @@ class Trainer:
             )
 
         # Final test evaluation
-        best_metrics = self.val_history[self.best_epoch - 1]
+        best_metrics = self.val_history[self.best_epoch - 1] if self.best_epoch > 0 else {}
         if self.test_dataset is not None:
             test_metrics = self._evaluate(self.test_dataset)
             logger.info("=" * 60)
@@ -320,6 +404,9 @@ class Trainer:
             "epoch": epoch,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
+            "scheduler_state_dict": (
+                self.scheduler.state_dict() if self.scheduler else None
+            ),
             "metrics": metrics,
             "config": self.config,
         }

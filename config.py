@@ -21,12 +21,13 @@ class DataConfig:
     dataset: str = "csi300"  # "csi300" or "csi500"
 
     # --- Time Periods (Table I in paper) ---
-    # CSI 300: 2018-01-02 to 2022-06-30
-    # CSI 500: 2019-01-02 to 2022-06-30
+    # CSI 300: original paper used 2018-01-02 to 2022-06-30
+    # CSI 500: original paper used 2019-01-02 to 2022-06-30
+    # Extended: fetching up to 2026-06-26 for richer test coverage
     csi300_start: str = "2018-01-02"
-    csi300_end: str = "2022-06-30"
-    csi500_start: str = "2019-01-02"
-    csi500_end: str = "2022-06-30"
+    csi300_end: str = "2026-06-26"
+    csi500_start: str = "2018-01-02"
+    csi500_end: str = "2026-06-26"
 
     # --- Train/Val/Test Split Ratios (time-based) ---
     # Paper: roughly 70% train, 10% validation, 20% test

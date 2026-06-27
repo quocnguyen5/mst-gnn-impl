@@ -19,7 +19,10 @@ Split:        70% train / 10% val / 20% test  (time-based, no leakage)
 import argparse
 import logging
 import os
+import pickle
+import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,6 +37,28 @@ from backtest import TradingSimulator
 from utils.logger import setup_logger
 
 logger = logging.getLogger(__name__)
+
+
+def _push_results_to_github(dataset: str, save_dir: str):
+    """Push checkpoints and logs to GitHub if GITHUB_TOKEN is set."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        print("  [Git] GITHUB_TOKEN not set — skipping auto-push.", flush=True)
+        return
+    try:
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cmds = [
+            ["git", "add", "checkpoints/", "logs/"],
+            ["git", "commit", "-m", f"Auto: {dataset.upper()} results"],
+            ["git", "push"],
+        ]
+        for cmd in cmds:
+            r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=60)
+            if r.returncode != 0 and "nothing to commit" not in r.stdout:
+                logger.warning(f"Git command failed: {' '.join(cmd)}\n{r.stderr}")
+        print(f"  [Git] Pushed {dataset.upper()} results to GitHub.", flush=True)
+    except Exception as e:
+        print(f"  [Git] Push failed (non-fatal): {e}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +110,7 @@ def run_vn_experiment(
     universe: str = "vn100",
     aggregator: str = "mean",
     start_date: str = "2020-01-02",
-    end_date: str = "2024-06-30",
+    end_date: str = "2026-06-26",
 ):
     """
     Run the complete MST-GNN experiment on Vietnamese stock data.
@@ -100,12 +125,21 @@ def run_vn_experiment(
     set_seed(config.train.seed)
     setup_logger(name="mst_gnn_vn", log_dir="logs")
 
+    import time as _time
+    t_total = _time.time()
+
     logger.info("=" * 60)
     logger.info(f"MST-GNN Vietnam | Universe: {universe.upper()} | Aggregator: {aggregator}")
     logger.info(f"Period: {start_date}  →  {end_date}")
     logger.info("=" * 60)
+    print(f"\n{'='*60}", flush=True)
+    print(f"  MST-GNN Vietnam: {universe.upper()} | {aggregator}", flush=True)
+    print(f"  Period: {start_date} → {end_date}", flush=True)
+    print(f"{'='*60}\n", flush=True)
 
     # ---- Phase 1: Data Collection ----------------------------------------
+    t1 = _time.time()
+    print("[VN Phase 1] Collecting data (loading from cache if available)...", flush=True)
     logger.info("Phase 1: Collecting Vietnam stock data...")
     collector = VietnamStockCollector(
         cache_dir=config.data.raw_data_dir,
@@ -122,17 +156,17 @@ def run_vn_experiment(
         logger.info("Make sure vnstock is installed: pip install vnstock")
         raise
 
+    print(f"  [VN Phase 1 done] {_time.time()-t1:.1f}s — "
+          f"{len(raw_data['daily_prices']):,} price rows, "
+          f"{len(raw_data['industry'])} industry records", flush=True)
     logger.info(
         f"  Stocks:      {len(raw_data['constituents'])} | "
         f"Price rows: {len(raw_data['daily_prices']):,}"
     )
-    logger.info(
-        f"  Industry:    {len(raw_data['industry'])} entries | "
-        f"Shareholding: {len(raw_data['shareholding'])} (may be empty) | "
-        f"News: {len(raw_data['news'])} (may be empty)"
-    )
 
     # ---- Phase 2: Preprocessing ------------------------------------------
+    t2 = _time.time()
+    print("\n[VN Phase 2] Preprocessing — computing 13 features & sliding windows...", flush=True)
     logger.info("Phase 2: Preprocessing data...")
     preprocessor = StockPreprocessor(
         lookback_window=config.data.lookback_window,
@@ -141,9 +175,8 @@ def run_vn_experiment(
     processed_df, samples, trading_dates = preprocessor.process_pipeline(
         raw_data["daily_prices"]
     )
-    logger.info(
-        f"  Trading dates: {len(trading_dates)} | Samples: {len(samples):,}"
-    )
+    print(f"  [VN Phase 2 done] {_time.time()-t2:.1f}s — "
+          f"{len(trading_dates)} trading days, {len(samples):,} samples", flush=True)
 
     active_stocks = {
         date: preprocessor.get_active_stocks(processed_df, date)
@@ -151,24 +184,47 @@ def run_vn_experiment(
     }
 
     # ---- Phase 3: Graph Construction -------------------------------------
+    t3 = _time.time()
+    print(f"\n[VN Phase 3] Building graphs for {len(trading_dates)} trading days...", flush=True)
     logger.info("Phase 3: Building multilayer graphs...")
-    graph_builder = GraphBuilder(
-        comovement_window=config.data.comovement_window,
-        comovement_threshold=config.data.comovement_threshold,
-        num_topics=config.data.num_topics,
-        topic_similarity_threshold=config.data.topic_similarity_threshold,
+
+    # Graph cache: skip rebuild if cached pickle exists
+    graph_cache_path = os.path.join(
+        config.data.processed_data_dir,
+        f"graphs_{universe}_{len(trading_dates)}days.pkl",
     )
-    graphs = graph_builder.build_temporal_multilayer_graphs(
-        trading_dates=trading_dates,
-        price_df=processed_df,
-        industry_df=raw_data["industry"],
-        shareholding_df=raw_data["shareholding"],
-        news_df=raw_data["news"],
-        active_stocks_per_date=active_stocks,
-    )
-    logger.info(f"  Graphs built for {len(graphs)} dates.")
+    os.makedirs(config.data.processed_data_dir, exist_ok=True)
+
+    if os.path.exists(graph_cache_path):
+        print(f"  [Graph Cache] Loading from {graph_cache_path} (instant)...", flush=True)
+        with open(graph_cache_path, "rb") as f:
+            graphs = pickle.load(f)
+        logger.info(f"Loaded {len(graphs)} graphs from cache.")
+    else:
+        graph_builder = GraphBuilder(
+            comovement_window=config.data.comovement_window,
+            comovement_threshold=config.data.comovement_threshold,
+            num_topics=config.data.num_topics,
+            topic_similarity_threshold=config.data.topic_similarity_threshold,
+        )
+        graphs = graph_builder.build_temporal_multilayer_graphs(
+            trading_dates=trading_dates,
+            price_df=processed_df,
+            industry_df=raw_data["industry"],
+            shareholding_df=raw_data["shareholding"],
+            news_df=raw_data["news"],
+            active_stocks_per_date=active_stocks,
+        )
+        # Save to cache for next run
+        with open(graph_cache_path, "wb") as f:
+            pickle.dump(graphs, f)
+        print(f"  [Graph Cache] Saved to {graph_cache_path}", flush=True)
+
+    print(f"  [VN Phase 3 done] {len(graphs)} graphs in {(_time.time()-t3)/60:.1f} min", flush=True)
 
     # ---- Phase 4: Dataset ------------------------------------------------
+    t4 = _time.time()
+    print("\n[VN Phase 4] Creating dataset — matching samples to graphs...", flush=True)
     logger.info("Phase 4: Creating dataset...")
     dataset_builder = DatasetBuilder(
         train_ratio=config.data.train_ratio,
@@ -179,14 +235,16 @@ def run_vn_experiment(
     snapshots = dataset_builder.build_snapshots(trading_dates, samples, graphs)
     dataset_builder.save_dataset(snapshots, filename=f"{universe}_snapshots.pkl")
     train_ds, val_ds, test_ds = dataset_builder.split_dataset(snapshots)
-    logger.info(
-        f"  Total: {len(snapshots)} snapshots | "
-        f"Train: {len(train_ds)} | Val: {len(val_ds)} | Test: {len(test_ds)}"
-    )
+    print(f"  [VN Phase 4 done] {_time.time()-t4:.1f}s — "
+          f"{len(snapshots)} snapshots | "
+          f"Train: {len(train_ds)} | Val: {len(val_ds)} | Test: {len(test_ds)}", flush=True)
 
     # ---- Phase 5: Training -----------------------------------------------
+    t5 = _time.time()
+    print(f"\n[VN Phase 5] Training MST-GNN ({universe.upper()})...", flush=True)
     logger.info("Phase 5: Training MST-GNN...")
     model = MSTGNN.from_config(config)
+    print(f"  Model parameters: {model.count_parameters():,}", flush=True)
     logger.info(f"  Parameters: {model.count_parameters():,}")
     trainer = Trainer(
         model=model,
@@ -196,8 +254,10 @@ def run_vn_experiment(
         test_dataset=test_ds,
     )
     test_metrics = trainer.train()
+    print(f"  [VN Phase 5 done] {(_time.time()-t5)/60:.1f} min", flush=True)
 
     # ---- Phase 6: Backtest -----------------------------------------------
+    print("\n[VN Phase 6] Trading simulation...", flush=True)
     logger.info("Phase 6: Trading simulation...")
     dates, codes, preds, scores, returns = trainer.get_predictions(test_ds)
     simulator = TradingSimulator(
@@ -218,6 +278,7 @@ def run_vn_experiment(
     )
 
     # ---- Summary ---------------------------------------------------------
+    total_min = (_time.time() - t_total) / 60
     logger.info("=" * 60)
     logger.info("EXPERIMENT COMPLETE — Vietnam Stock Market")
     logger.info(f"Universe:       {universe.upper()} ({len(raw_data['constituents'])} stocks)")
@@ -226,7 +287,18 @@ def run_vn_experiment(
     logger.info(f"Test Accuracy:  {test_metrics['accuracy']:.4f}")
     logger.info(f"Test Precision: {test_metrics['precision']:.4f}")
     logger.info(f"Test DAMRR:     {test_metrics['damrr']:.4f}")
+    logger.info(f"Total time:     {total_min:.1f} min")
     logger.info("=" * 60)
+
+    print(f"\n{'='*60}", flush=True)
+    print(f"  {universe.upper()} DONE in {total_min:.1f} min", flush=True)
+    print(f"  Accuracy: {test_metrics['accuracy']:.4f}  |  "
+          f"Precision: {test_metrics['precision']:.4f}  |  "
+          f"DAMRR: {test_metrics['damrr']:.4f}", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
+    # ---- Auto-push to GitHub ----
+    _push_results_to_github(universe, config.train.save_dir)
 
     return test_metrics
 
@@ -282,8 +354,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--end",
         type=str,
-        default="2024-06-30",
-        help="End date YYYY-MM-DD (default: 2024-06-30)",
+        default="2026-06-26",
+        help="End date YYYY-MM-DD (default: 2026-06-26)",
     )
     args = parser.parse_args()
 

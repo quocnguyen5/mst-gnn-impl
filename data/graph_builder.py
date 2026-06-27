@@ -86,8 +86,13 @@ class GraphBuilder:
         # If holder_code column exists, use it directly
         if "holder_code" in shareholding_df.columns:
             for _, row in shareholding_df.iterrows():
-                holder = str(row["holder_code"]).zfill(6)
-                held = str(row["held_code"]).zfill(6)
+                holder = str(row["holder_code"])
+                held = str(row["held_code"])
+                # Only zero-pad numeric codes (CSI stocks like '600000')
+                if holder.isdigit():
+                    holder = holder.zfill(6)
+                if held.isdigit():
+                    held = held.zfill(6)
                 ratio = float(row.get("ratio", 0.0))
 
                 if holder in code_to_idx and held in code_to_idx:
@@ -139,7 +144,10 @@ class GraphBuilder:
         # Group stocks by industry
         industry_groups = {}
         for _, row in industry_df.iterrows():
-            code = str(row["stock_code"]).zfill(6)
+            code = str(row["stock_code"])
+            # Only zero-pad numeric codes (CSI stocks like '600000')
+            if code.isdigit():
+                code = code.zfill(6)
             industry = row["industry_name"]
             if code in code_to_idx:
                 industry_groups.setdefault(industry, []).append(code)

@@ -1,31 +1,101 @@
 stock_code,industry_name
-ACB,Unknown
-BCM,Unknown
-BID,Unknown
-BVH,Unknown
-CTG,Unknown
-FPT,Unknown
-GAS,Unknown
-GVR,Unknown
-HDB,Unknown
-HPG,Unknown
-MBB,Unknown
-MSN,Unknown
-MWG,Unknown
-PLX,Unknown
-POW,Unknown
-SAB,Unknown
-SHB,Unknown
-SSB,Unknown
-SSI,Unknown
-STB,Unknown
-TCB,Unknown
-TPB,Unknown
-VCB,Unknown
-VHM,Unknown
-VIB,Unknown
-VIC,Unknown
-VJC,Unknown
-VNM,Unknown
-VPB,Unknown
-VRE,Unknown
+VCB,Banking
+BID,Banking
+CTG,Banking
+TCB,Banking
+MBB,Banking
+ACB,Banking
+VPB,Banking
+HDB,Banking
+STB,Banking
+SHB,Banking
+VIB,Banking
+TPB,Banking
+LPB,Banking
+OCB,Banking
+SSB,Banking
+EIB,Banking
+ABB,Banking
+BVB,Banking
+KLB,Banking
+NAB,Banking
+VHM,Real Estate
+VIC,Real Estate
+VRE,Real Estate
+NVL,Real Estate
+PDR,Real Estate
+KDH,Real Estate
+DXG,Real Estate
+NLG,Real Estate
+DIG,Real Estate
+CII,Real Estate
+IDC,Real Estate
+KBC,Real Estate
+HDG,Real Estate
+SZC,Real Estate
+TDH,Real Estate
+AGG,Real Estate
+IJC,Real Estate
+BCM,Real Estate
+TCH,Real Estate
+PHR,Real Estate
+VNM,Food & Beverage
+MWG,Consumer Discretionary
+SAB,Food & Beverage
+MSN,Consumer Staples
+PNJ,Consumer Discretionary
+QNS,Food & Beverage
+VHC,Food & Beverage
+ANV,Food & Beverage
+FMC,Food & Beverage
+PAN,Agriculture
+DBC,Agriculture
+BAF,Agriculture
+HAG,Agriculture
+GTN,Agriculture
+TNG,Consumer Discretionary
+MSH,Consumer Discretionary
+VFC,Consumer Discretionary
+TRA,Consumer Discretionary
+RAL,Consumer Staples
+VCF,Food & Beverage
+GAS,Oil & Gas
+PLX,Oil & Gas
+BSR,Oil & Gas
+POW,Utilities
+GEG,Utilities
+VSH,Utilities
+REE,Utilities
+PC1,Utilities
+PVT,Transportation
+PVD,Oil & Gas
+DPM,Chemicals
+DCM,Chemicals
+GEX,Steel & Materials
+VGC,Steel & Materials
+HT1,Steel & Materials
+KSB,Steel & Materials
+HPG,Steel & Materials
+DPR,Agriculture
+TV2,Construction
+BWE,Utilities
+FPT,Technology
+SSI,Financial Services
+HCM,Financial Services
+VCI,Financial Services
+VND,Financial Services
+BVH,Insurance
+MIG,Insurance
+CMG,Technology
+ELC,Technology
+VDS,Financial Services
+VJC,Transportation
+GMD,Transportation
+VOS,Transportation
+SCS,Transportation
+VPI,Real Estate
+NCT,Transportation
+SKG,Transportation
+NKG,Steel & Materials
+GVR,Agriculture
+HSG,Steel & Materials

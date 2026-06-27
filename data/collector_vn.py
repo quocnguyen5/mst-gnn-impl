@@ -86,6 +86,63 @@ VN100_CODES: List[str] = [
 _seen: set = set()
 VN100_CODES = [c for c in VN100_CODES if not (c in _seen or _seen.add(c))]  # type: ignore[func-returns-value]
 
+# Static industry classification fallback (used when vnstock API returns None)
+# Source: HOSE sector classification + ICB standard (2024)
+VN_INDUSTRY_STATIC: dict = {
+    # Banking
+    "ACB": "Banking", "BID": "Banking", "CTG": "Banking", "EIB": "Banking",
+    "HDB": "Banking", "KLB": "Banking", "LPB": "Banking", "MBB": "Banking",
+    "NAB": "Banking", "OCB": "Banking", "SHB": "Banking", "SSB": "Banking",
+    "STB": "Banking", "TCB": "Banking", "TPB": "Banking", "VCB": "Banking",
+    "VIB": "Banking", "VPB": "Banking", "ABB": "Banking", "BVB": "Banking",
+    # Real Estate
+    "AGG": "Real Estate", "BCM": "Real Estate", "CII": "Real Estate",
+    "DIG": "Real Estate", "DXG": "Real Estate", "HDG": "Real Estate",
+    "IDC": "Real Estate", "IJC": "Real Estate", "KBC": "Real Estate",
+    "KDH": "Real Estate", "NLG": "Real Estate", "NVL": "Real Estate",
+    "PDR": "Real Estate", "PHR": "Real Estate", "SZC": "Real Estate",
+    "TCH": "Real Estate", "TDH": "Real Estate", "VHM": "Real Estate",
+    "VIC": "Real Estate", "VRE": "Real Estate",
+    # Insurance & Financial Services
+    "BVH": "Insurance", "MIG": "Insurance",
+    "HCM": "Financial Services", "SSI": "Financial Services",
+    "VCI": "Financial Services", "VND": "Financial Services",
+    "VDS": "Financial Services",
+    # Technology
+    "CMG": "Technology", "ELC": "Technology", "FPT": "Technology",
+    # Oil & Gas / Energy
+    "BSR": "Oil & Gas", "DCM": "Chemicals",
+    "DPM": "Chemicals", "GAS": "Oil & Gas", "PLX": "Oil & Gas",
+    # Utilities / Power
+    "BWE": "Utilities", "GEG": "Utilities", "PC1": "Utilities",
+    "POW": "Utilities", "REE": "Utilities", "VSH": "Utilities",
+    # Steel & Materials
+    "GEX": "Steel & Materials", "HPG": "Steel & Materials",
+    "HSG": "Steel & Materials", "KSB": "Steel & Materials",
+    "NKG": "Steel & Materials", "VGC": "Steel & Materials",
+    "HT1": "Steel & Materials",
+    # Consumer Staples / F&B
+    "ANV": "Food & Beverage", "BAF": "Agriculture",
+    "DBC": "Agriculture", "FMC": "Food & Beverage",
+    "GTN": "Agriculture", "HAG": "Agriculture",
+    "MSN": "Consumer Staples", "PAN": "Agriculture",
+    "QNS": "Food & Beverage", "RAL": "Consumer Staples",
+    "SAB": "Food & Beverage", "VCF": "Food & Beverage",
+    "VHC": "Food & Beverage", "VNM": "Food & Beverage",
+    # Consumer Discretionary / Retail
+    "MSH": "Consumer Discretionary", "MWG": "Consumer Discretionary",
+    "PNJ": "Consumer Discretionary", "TNG": "Consumer Discretionary",
+    "TRA": "Consumer Discretionary", "VFC": "Consumer Discretionary",
+    # Transport / Logistics
+    "GMD": "Transportation", "GVR": "Agriculture",
+    "NCT": "Transportation", "NKG": "Steel & Materials",
+    "PVD": "Oil & Gas", "PVT": "Transportation",
+    "SCS": "Transportation", "SKG": "Transportation",
+    "TV2": "Construction", "VJC": "Transportation",
+    "VOS": "Transportation", "VPI": "Real Estate",
+    "DPR": "Agriculture",
+}
+
 
 # ---------------------------------------------------------------------------
 # Collector class
@@ -259,13 +316,15 @@ class VietnamStockCollector:
         Returns:
             Combined DataFrame of all stocks.
         """
+        n_stocks = len(stock_codes)
         cache_path = os.path.join(
             self.cache_dir,
-            f"daily_prices_{start_date}_{end_date}.parquet",
+            f"daily_prices_{n_stocks}stocks_{start_date}_{end_date}.parquet",
         )
         if os.path.exists(cache_path):
             logger.info("Loading daily prices from cache.")
             print("  [VN Cache] Loading daily prices from cache (instant).", flush=True)
+
             return pd.read_parquet(cache_path)
 
         total = len(stock_codes)
