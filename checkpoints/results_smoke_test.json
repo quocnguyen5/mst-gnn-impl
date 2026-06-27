@@ -1,0 +1,64 @@
+{
+  "dataset": "smoke_test",
+  "test_metrics": {
+    "accuracy": 0.4888,
+    "precision": 0.0,
+    "damrr": 0.0211,
+    "loss": NaN,
+    "move_loss": NaN,
+    "rank_loss": NaN
+  },
+  "best_epoch": 0,
+  "train_history": [
+    {
+      "accuracy": 0.5144687527237862,
+      "precision": 0.13989637305699482,
+      "damrr": 0.0210603559240296,
+      "loss": NaN,
+      "move_loss": NaN,
+      "rank_loss": NaN
+    },
+    {
+      "accuracy": 0.5205264534123595,
+      "precision": 0.0,
+      "damrr": 0.0210603559240296,
+      "loss": NaN,
+      "move_loss": NaN,
+      "rank_loss": NaN
+    },
+    {
+      "accuracy": 0.5205264534123595,
+      "precision": 0.0,
+      "damrr": 0.0210603559240296,
+      "loss": NaN,
+      "move_loss": NaN,
+      "rank_loss": NaN
+    }
+  ],
+  "val_history": [
+    {
+      "accuracy": 0.5896888346552777,
+      "precision": 0.0,
+      "damrr": 0.021060355924029595,
+      "loss": NaN,
+      "move_loss": NaN,
+      "rank_loss": NaN
+    },
+    {
+      "accuracy": 0.5896888346552777,
+      "precision": 0.0,
+      "damrr": 0.021060355924029595,
+      "loss": NaN,
+      "move_loss": NaN,
+      "rank_loss": NaN
+    },
+    {
+      "accuracy": 0.5896888346552777,
+      "precision": 0.0,
+      "damrr": 0.021060355924029595,
+      "loss": NaN,
+      "move_loss": NaN,
+      "rank_loss": NaN
+    }
+  ]
+}
