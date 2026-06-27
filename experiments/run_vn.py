@@ -50,10 +50,11 @@ def _push_results_to_github(dataset: str, save_dir: str):
         cmds = [
             ["git", "add", "checkpoints/", "logs/"],
             ["git", "commit", "-m", f"Auto: {dataset.upper()} results"],
+            ["git", "pull", "--rebase", "--no-edit"],
             ["git", "push"],
         ]
         for cmd in cmds:
-            r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=60)
+            r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=120)
             if r.returncode != 0 and "nothing to commit" not in r.stdout:
                 logger.warning(f"Git command failed: {' '.join(cmd)}\n{r.stderr}")
         print(f"  [Git] Pushed {dataset.upper()} results to GitHub.", flush=True)

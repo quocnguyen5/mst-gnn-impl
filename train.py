@@ -400,6 +400,7 @@ class Trainer:
         is_best: bool = False,
     ):
         """Save model checkpoint."""
+        exp_name = self.config.train.experiment_name
         checkpoint = {
             "epoch": epoch,
             "model_state_dict": self.model.state_dict(),
@@ -408,16 +409,27 @@ class Trainer:
                 self.scheduler.state_dict() if self.scheduler else None
             ),
             "metrics": metrics,
+            "train_history": self.train_history,
+            "val_history": self.val_history,
             "config": self.config,
         }
 
         if is_best:
-            path = os.path.join(self.config.train.save_dir, "best_model.pt")
+            path = os.path.join(
+                self.config.train.save_dir, f"best_model_{exp_name}.pt"
+            )
             torch.save(checkpoint, path)
+            logger.info(f"Best model saved: {path} (epoch {epoch})")
 
     def _load_best_checkpoint(self):
         """Load the best model checkpoint."""
-        path = os.path.join(self.config.train.save_dir, "best_model.pt")
+        exp_name = self.config.train.experiment_name
+        path = os.path.join(
+            self.config.train.save_dir, f"best_model_{exp_name}.pt"
+        )
+        # Fallback to old generic name
+        if not os.path.exists(path):
+            path = os.path.join(self.config.train.save_dir, "best_model.pt")
         if os.path.exists(path):
             checkpoint = torch.load(path, map_location=self.device, weights_only=False)
             self.model.load_state_dict(checkpoint["model_state_dict"])
