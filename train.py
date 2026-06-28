@@ -80,10 +80,14 @@ class Trainer:
         self.val_dataset = val_dataset
         self.test_dataset = test_dataset
 
-        # Loss function (Eq. 17)
+        # Loss function (Eq. 17) with class weights to prevent collapse
+        # Labels: ~53% down (0), ~47% up (1)
+        # Weight = N_total / (N_class * 2): down=0.94, up=1.06
+        # We use stronger weights to force model to predict both classes
         self.criterion = MultitaskLoss(
             delta=config.train.delta,
             margin=config.train.margin,
+            class_weight=[0.7, 1.3],  # penalize missing "up" predictions more
         )
 
         # Optimizer with L2 regularization (c·||Θ||² in Eq. 17)

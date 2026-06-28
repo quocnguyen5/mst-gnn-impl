@@ -80,7 +80,11 @@ class ModelConfig:
     stna_hidden_dim: int = 64  # hidden dimension in STNA
 
     # --- Cross-Layer High-Order Feature Fusion (Module C, Eqs. 13-15) ---
-    num_network_layers: int = 4  # M: number of stock network types
+    num_network_layers: int = 2  # M: only industry + comovement have edges
+    # Active networks (shareholding & topicality are empty — 0 edges)
+    active_networks: List[str] = field(
+        default_factory=lambda: ["industry", "comovement"]
+    )
     cross_network_layers: int = 3  # C: number of cross network layers
     deep_network_layers: int = 2  # number of MLP layers in deep network
     deep_network_dim: int = 128  # hidden dim of deep network
@@ -106,7 +110,7 @@ class TrainConfig:
 
     # --- Multitask Loss (Eq. 17) ---
     # L = delta * L_move + (1 - delta) * L_rank + c * ||Theta||^2
-    delta: float = 0.7  # increased from 0.5 — emphasize movement prediction (fix precision=0)
+    delta: float = 0.5  # paper default (class_weight handles imbalance)
     margin: float = 0.1  # margin for pairwise ranking loss
 
     # --- Gradient Clipping ---

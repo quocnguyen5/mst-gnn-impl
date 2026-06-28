@@ -99,16 +99,26 @@ class MultitaskLoss(nn.Module):
     inductive bias."
     """
 
-    def __init__(self, delta: float = 0.5, margin: float = 0.1):
+    def __init__(self, delta: float = 0.5, margin: float = 0.1, class_weight: list = None):
         """
         Args:
             delta: Weight for movement loss (1-delta for ranking)
             margin: Margin for pairwise ranking loss
+            class_weight: Optional [w_down, w_up] weights for CrossEntropy.
+                         Use to counteract class imbalance and prevent
+                         model collapse to majority class.
         """
         super().__init__()
         self.delta = delta
         self.margin = margin
-        self.ce_loss = nn.CrossEntropyLoss()
+        if class_weight is not None:
+            self.register_buffer(
+                "class_weight", torch.tensor(class_weight, dtype=torch.float32)
+            )
+            self.ce_loss = None  # will use F.cross_entropy with weights
+        else:
+            self.class_weight = None
+            self.ce_loss = nn.CrossEntropyLoss()
 
     def movement_loss(
         self,
@@ -125,6 +135,9 @@ class MultitaskLoss(nn.Module):
         Returns:
             Scalar loss
         """
+        if self.class_weight is not None:
+            weight = self.class_weight.to(movement_logits.device)
+            return F.cross_entropy(movement_logits, movement_labels, weight=weight)
         return self.ce_loss(movement_logits, movement_labels)
 
     def ranking_loss(

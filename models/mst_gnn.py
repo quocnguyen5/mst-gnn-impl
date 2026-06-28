@@ -38,6 +38,7 @@ class MSTGNN(nn.Module):
         D. Multitask Prediction (Movement + Ranking)
     """
 
+    # Default network names (can be overridden via config)
     NETWORK_NAMES = ["shareholding", "industry", "topicality", "comovement"]
 
     def __init__(
@@ -198,7 +199,7 @@ class MSTGNN(nn.Module):
     @classmethod
     def from_config(cls, config) -> "MSTGNN":
         """Create MST-GNN from a Config object."""
-        return cls(
+        model = cls(
             input_dim=config.model.input_dim,
             lstm_hidden_dim=config.model.lstm_hidden_dim,
             lstm_num_layers=config.model.lstm_num_layers,
@@ -214,6 +215,10 @@ class MSTGNN(nn.Module):
             num_classes=config.model.num_classes,
             dropout=config.model.dropout,
         )
+        # Use only active networks (skip networks with 0 edges)
+        if hasattr(config.model, "active_networks") and config.model.active_networks:
+            model.NETWORK_NAMES = config.model.active_networks
+        return model
 
     def count_parameters(self) -> int:
         """Count total trainable parameters."""
