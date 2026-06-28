@@ -53,7 +53,7 @@ class DataConfig:
 
     # --- Comovement Network ---
     comovement_window: int = 20  # rolling window for correlation
-    comovement_threshold: float = 0.3  # threshold for edge creation
+    comovement_threshold: float = 0.6  # increased from 0.3 to create sparser graph (prevent over-smoothing)
 
     # --- Topicality Network ---
     num_topics: int = 50  # number of LDA topics
@@ -75,7 +75,7 @@ class ModelConfig:
     lstm_num_layers: int = 1  # number of LSTM layers
 
     # --- Spatial-Temporal Neighborhood Aggregation (Module B, Eqs. 8-12) ---
-    stna_depth: int = 2  # K: aggregation depth
+    stna_depth: int = 1  # K=1: single-hop to reduce over-smoothing on dense graphs
     stna_aggregator: str = "mean"  # "mean", "lstm", or "maxpool"
     stna_hidden_dim: int = 64  # hidden dimension in STNA
 

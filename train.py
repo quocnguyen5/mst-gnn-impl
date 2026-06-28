@@ -80,14 +80,13 @@ class Trainer:
         self.val_dataset = val_dataset
         self.test_dataset = test_dataset
 
-        # Loss function (Eq. 17) with class weights to prevent collapse
+        # Loss function (Eq. 17) with mild class weights
         # Labels: ~53% down (0), ~47% up (1)
-        # Weight = N_total / (N_class * 2): down=0.94, up=1.06
-        # We use stronger weights to force model to predict both classes
+        # Inverse frequency: [0.94, 1.06] — mild enough to not flip bias
         self.criterion = MultitaskLoss(
             delta=config.train.delta,
             margin=config.train.margin,
-            class_weight=[0.7, 1.3],  # penalize missing "up" predictions more
+            class_weight=[0.9, 1.1],  # mild rebalancing
         )
 
         # Optimizer with L2 regularization (c·||Θ||² in Eq. 17)
