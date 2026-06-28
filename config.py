@@ -25,9 +25,9 @@ class DataConfig:
     # CSI 500: original paper used 2019-01-02 to 2022-06-30
     # Extended: fetching up to 2026-06-26 for richer test coverage
     csi300_start: str = "2018-01-02"
-    csi300_end: str = "2026-06-26"
-    csi500_start: str = "2018-01-02"
-    csi500_end: str = "2026-06-26"
+    csi300_end: str = "2022-06-30"  # paper's original range for validation
+    csi500_start: str = "2019-01-02"
+    csi500_end: str = "2022-06-30"  # paper's original range
 
     # --- Train/Val/Test Split Ratios (time-based) ---
     # Paper: roughly 70% train, 10% validation, 20% test
@@ -53,7 +53,7 @@ class DataConfig:
 
     # --- Comovement Network ---
     comovement_window: int = 20  # rolling window for correlation
-    comovement_threshold: float = 0.6  # increased from 0.3 to create sparser graph (prevent over-smoothing)
+    comovement_threshold: float = 0.3  # paper default
 
     # --- Topicality Network ---
     num_topics: int = 50  # number of LDA topics
@@ -75,15 +75,14 @@ class ModelConfig:
     lstm_num_layers: int = 1  # number of LSTM layers
 
     # --- Spatial-Temporal Neighborhood Aggregation (Module B, Eqs. 8-12) ---
-    stna_depth: int = 1  # K=1: single-hop to reduce over-smoothing on dense graphs
+    stna_depth: int = 2  # K=2: paper default
     stna_aggregator: str = "mean"  # "mean", "lstm", or "maxpool"
     stna_hidden_dim: int = 64  # hidden dimension in STNA
 
     # --- Cross-Layer High-Order Feature Fusion (Module C, Eqs. 13-15) ---
-    num_network_layers: int = 2  # M: only industry + comovement have edges
-    # Active networks (shareholding & topicality are empty — 0 edges)
+    num_network_layers: int = 4  # M: paper default (4 networks)
     active_networks: List[str] = field(
-        default_factory=lambda: ["industry", "comovement"]
+        default_factory=lambda: ["shareholding", "industry", "topicality", "comovement"]
     )
     cross_network_layers: int = 3  # C: number of cross network layers
     deep_network_layers: int = 2  # number of MLP layers in deep network
@@ -94,7 +93,7 @@ class ModelConfig:
     num_classes: int = 2  # binary movement: up/down
 
     # --- Dropout ---
-    dropout: float = 0.2  # reduced from 0.3 for small datasets
+    dropout: float = 0.3  # paper default
 
 
 @dataclass
@@ -102,11 +101,11 @@ class TrainConfig:
     """Training configuration."""
 
     # --- Optimization ---
-    learning_rate: float = 5e-4  # reduced from 1e-3 for stability
+    learning_rate: float = 1e-3  # paper default
     weight_decay: float = 1e-5  # c in Eq. 17: L2 regularization
     batch_size: int = 1  # temporal graphs are processed one snapshot at a time
     num_epochs: int = 200
-    patience: int = 40  # increased from 20 — give model more time to learn
+    patience: int = 20  # paper default
 
     # --- Multitask Loss (Eq. 17) ---
     # L = delta * L_move + (1 - delta) * L_rank + c * ||Theta||^2

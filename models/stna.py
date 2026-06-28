@@ -348,20 +348,11 @@ class STNA(nn.Module):
             temporal_info = self.temporal_transform(prev_hidden)
             h = gate * temporal_info + (1 - gate) * h
 
-        # K-depth spatial aggregation with residual connections
-        h_input = h  # save for skip connection
+        # K-depth spatial aggregation
         for k in range(self.depth):
-            h_prev = h
             h = self.aggregators[k](h, st_edge_index, st_edge_weight)
             h = self.layer_norms[k](h)
-            # Residual connection: preserve individual stock info
-            if h.size(-1) == h_prev.size(-1):
-                h = h + h_prev
             h = self.dropout(h)
-
-        # Final skip from input (before aggregation) to preserve stock identity
-        if h.size(-1) == h_input.size(-1):
-            h = h + h_input
 
         return h
 

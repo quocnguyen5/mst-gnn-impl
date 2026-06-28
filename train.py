@@ -80,13 +80,10 @@ class Trainer:
         self.val_dataset = val_dataset
         self.test_dataset = test_dataset
 
-        # Loss function (Eq. 17) with mild class weights
-        # Labels: ~53% down (0), ~47% up (1)
-        # Inverse frequency: [0.94, 1.06] — mild enough to not flip bias
+        # Loss function (Eq. 17) — paper default, no class weights
         self.criterion = MultitaskLoss(
             delta=config.train.delta,
             margin=config.train.margin,
-            class_weight=[0.9, 1.1],  # mild rebalancing
         )
 
         # Optimizer with L2 regularization (c·||Θ||² in Eq. 17)
