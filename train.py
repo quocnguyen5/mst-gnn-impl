@@ -142,6 +142,7 @@ class Trainer:
             outputs = self.model(
                 node_features=snapshot.node_features,
                 networks=snapshot.networks,
+                stock_codes=snapshot.stock_codes,
             )
 
             # Compute multitask loss (Eq. 17)
@@ -191,6 +192,7 @@ class Trainer:
             outputs = self.model(
                 node_features=snapshot.node_features,
                 networks=snapshot.networks,
+                stock_codes=snapshot.stock_codes,
             )
 
             total_loss, move_loss, rank_loss = self.criterion(
@@ -464,6 +466,7 @@ class Trainer:
             outputs = self.model(
                 node_features=snapshot.node_features,
                 networks=snapshot.networks,
+                stock_codes=snapshot.stock_codes,
             )
 
             preds = outputs["movement_logits"].argmax(dim=-1).cpu().numpy()

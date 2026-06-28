@@ -113,6 +113,7 @@ class MSTGNN(nn.Module):
         self,
         node_features: torch.Tensor,
         networks: dict,
+        stock_codes: list = None,
         return_intermediate: bool = False,
     ) -> dict:
         """
@@ -122,6 +123,7 @@ class MSTGNN(nn.Module):
             node_features: (num_stocks, T, d) — sequential stock features
             networks: Dict mapping network_name -> (edge_index, edge_weight)
                      Keys: "shareholding", "industry", "topicality", "comovement"
+            stock_codes: List of stock codes for current snapshot (for temporal mapping)
             return_intermediate: If True, also return intermediate representations
 
         Returns:
@@ -133,23 +135,47 @@ class MSTGNN(nn.Module):
             - "stna_outputs": Dict [if return_intermediate]
         """
         network_names = self.NETWORK_NAMES[: self.num_networks]
+        num_stocks = node_features.size(0)
 
         # --- Module A: Encode sequential features ---
         # x_{i,t} ∈ R^{T×d} → h_i ∈ R^{d1}
         encoded = self.encoder(node_features)  # (num_stocks, d1)
 
+        # --- Build aligned prev_hiddens for current stocks ---
+        aligned_prev = None
+        if self._prev_hiddens is not None and stock_codes is not None:
+            aligned_prev = {}
+            for name in network_names:
+                if name in self._prev_hiddens:
+                    prev_dict = self._prev_hiddens[name]  # {code: tensor}
+                    hidden_dim = next(iter(prev_dict.values())).size(0)
+                    prev_tensor = torch.zeros(
+                        num_stocks, hidden_dim,
+                        device=node_features.device,
+                    )
+                    for i, code in enumerate(stock_codes):
+                        if code in prev_dict:
+                            prev_tensor[i] = prev_dict[code]
+                    aligned_prev[name] = prev_tensor
+
         # --- Module B: STNA per network layer ---
         stna_outputs = self.stna(
             encoded,
             networks,
-            prev_hiddens=self._prev_hiddens,
+            prev_hiddens=aligned_prev,
             network_names=network_names,
         )
 
-        # Store current hidden states for next timestep's temporal connection
-        self._prev_hiddens = {
-            name: h.detach() for name, h in stna_outputs.items()
-        }
+        # Store current hidden states keyed by stock_code for temporal mapping
+        if stock_codes is not None:
+            self._prev_hiddens = {}
+            for name, h in stna_outputs.items():
+                h_detached = h.detach()
+                self._prev_hiddens[name] = {
+                    code: h_detached[i] for i, code in enumerate(stock_codes)
+                }
+        else:
+            self._prev_hiddens = None
 
         # --- Module C: Cross-layer high-order feature fusion ---
         fused = self.hoff(stna_outputs, network_names)  # (num_stocks, output_dim)

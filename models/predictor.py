@@ -33,12 +33,12 @@ class MovementPredictor(nn.Module):
     L_move = -Σᵢ [yᵢ log(ŷᵢ) + (1-yᵢ) log(1-ŷᵢ)]  [Eq. 18]
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int = 64, num_classes: int = 2):
+    def __init__(self, input_dim: int, hidden_dim: int = 64, num_classes: int = 2, dropout: float = 0.2):
         super().__init__()
         self.classifier = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, num_classes),
         )
 
@@ -63,12 +63,12 @@ class RankingPredictor(nn.Module):
     L_rank uses pairwise comparison (Eq. 19).
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int = 64):
+    def __init__(self, input_dim: int, hidden_dim: int = 64, dropout: float = 0.2):
         super().__init__()
         self.scorer = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1),
         )
 

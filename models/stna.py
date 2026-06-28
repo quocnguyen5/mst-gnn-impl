@@ -253,6 +253,13 @@ class STNA(nn.Module):
         self.depth = depth
         self.dropout = nn.Dropout(dropout)
 
+        # Gated temporal connection (GRU-like)
+        self.temporal_gate = nn.Sequential(
+            nn.Linear(input_dim * 2, input_dim),
+            nn.Sigmoid(),
+        )
+        self.temporal_transform = nn.Linear(input_dim, input_dim)
+
         # Build K aggregation layers
         self.aggregators = nn.ModuleList()
         for k in range(depth):
@@ -280,16 +287,14 @@ class STNA(nn.Module):
         edge_index: torch.Tensor,
         edge_weight: torch.Tensor,
         num_nodes: int,
-        prev_hidden: torch.Tensor = None,
     ) -> tuple:
         """
         Build spatial-temporal neighborhood edges (Eq. 8).
 
         N_q(s_i, t) = {s_j, e_{j,i} ∈ E_{t,q}} ∪ {s_i, s_i ∈ S_{t-1}}
 
-        The temporal connection is a self-loop from the previous timestep.
-        We add self-loops to the current edge_index to model both spatial
-        neighbors and temporal self-connection.
+        The temporal connection is handled via gated hidden state fusion.
+        Self-loops model within-timestep self-connection.
         """
         if edge_index.numel() == 0:
             # No edges — create only self-loops
@@ -297,7 +302,7 @@ class STNA(nn.Module):
             edge_index = torch.stack([self_loops, self_loops])
             edge_weight = torch.ones(num_nodes, device=edge_index.device)
         else:
-            # Add self-loops for temporal connection
+            # Add self-loops for self-connection
             edge_index, edge_weight = add_self_loops(
                 edge_index,
                 edge_weight,
@@ -321,29 +326,29 @@ class STNA(nn.Module):
             x: Node features (num_nodes, input_dim)
             edge_index: Current graph edges (2, num_edges)
             edge_weight: Edge weights (num_edges,)
-            prev_hidden: Previous timestep hidden states (num_nodes, hidden_dim)
-                        Used for temporal self-connection in Eq. 8.
+            prev_hidden: Previous timestep hidden states (num_nodes, input_dim)
+                        Already aligned by stock code (handled in MSTGNN).
 
         Returns:
             Aggregated features (num_nodes, hidden_dim)
         """
         num_nodes = x.size(0)
 
-        # Build spatial-temporal edge index (Eq. 8)
+        # Build spatial edge index with self-loops
         st_edge_index, st_edge_weight = self._build_st_edge_index(
-            edge_index, edge_weight, num_nodes, prev_hidden
+            edge_index, edge_weight, num_nodes
         )
 
-        # If previous hidden states exist, incorporate temporal info
+        # Gated temporal connection (Eq. 8 — temporal part)
         h = x
-        if prev_hidden is not None and prev_hidden.size(0) == num_nodes:
-            # Add temporal self-connection: node at t receives info from t-1
-            # This is handled through the self-loop with prev_hidden
-            # We blend current and previous features
-            if prev_hidden.size(1) == x.size(1):
-                h = h + prev_hidden  # residual temporal connection
+        if prev_hidden is not None:
+            # GRU-like gate: learn how much temporal info to keep
+            gate_input = torch.cat([h, prev_hidden], dim=-1)  # (n, 2*dim)
+            gate = self.temporal_gate(gate_input)  # (n, dim), values in [0,1]
+            temporal_info = self.temporal_transform(prev_hidden)
+            h = gate * temporal_info + (1 - gate) * h
 
-        # K-depth aggregation
+        # K-depth spatial aggregation
         for k in range(self.depth):
             h = self.aggregators[k](h, st_edge_index, st_edge_weight)
             h = self.layer_norms[k](h)
